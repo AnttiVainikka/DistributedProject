@@ -54,34 +54,29 @@ class EpicMusicPlayer:
                 self.next_song() #TODO Send message to skip to next song
             if self.exit:
                 break #TODO Send message that this node is leaving lobby
-
-    def play(self):
-        self.player.play()
-        time.sleep(2) # VLC needs time to get ready
-        while (self.pause,self.next,self.exit) == (False,False,False):
             if self.skip:
                 timestamp = self.player.get_time()/1000
                 duration = self.player.get_length()/1000
                 print(f"{int(timestamp)}/{int(duration)}")
                 print("Type second to skip to. Press 't' to finish.")
                 while self.skip:
-                    pass
+                    if not self.player.is_playing() and not self.pause:
+                        self.skip = False
+                        self.timestamp = ""
+                        self.next_song()
                 if not self.timestamp:
                     print("Skipping canceled")
                 else:
-                    percentage = round(int(self.timestamp)/duration,2)
-                    self.timestamp = ""
-                    if percentage <= 1 and percentage >= 0:
-                        self.player.set_position(percentage)
-                        timestamp = self.player.get_time()/1000
-                        duration = self.player.get_length()/1000
-                        print(f"Skipped to {int(timestamp)}/{int(duration)}")
-                    else:
-                        print("Invalid second")
+                    self.skip_to_timestamp(self.timestamp)
+
+    def play(self):
+        self.player.play()
+        time.sleep(2) # VLC needs time to get ready
+        while (self.pause,self.next,self.exit,self.skip) == (False,False,False,False):
             if not self.player.is_playing():
                 self.next_song()
                 break
-            
+
     def next_song(self):
         if self.track == len(self.playlist)-1:
             self.song = self.playlist[0]
@@ -91,6 +86,19 @@ class EpicMusicPlayer:
             self.song = self.playlist[self.track]
         self.player.set_media(self.song.media)
         print("Playing: "+self.song.name)
+
+    def skip_to_timestamp(self,timestamp):
+        # Skipping fails sometimes when skipping while paused
+        duration = self.player.get_length()/1000
+        percentage = round(int(timestamp)/duration,2)
+        self.timestamp = ""
+        self.skip = False
+        if percentage <= 1 and percentage >= 0:
+            self.player.set_position(percentage)
+            timestamp = self.player.get_time()/1000
+            print(f"Skipped to {int(timestamp)}/{int(duration)}")
+        else:
+            print("Invalid second")
 
 class Song:
     def __init__(self, vlc_instance,song :str):
