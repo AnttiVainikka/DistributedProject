@@ -1,14 +1,27 @@
 import json
 import log
 import random
+import pickle
 from net.backend import IpAddress, NetBackend, TcpBackend
+
+from messages.messages import *
+
+from event_manager.event_manager import EventManager
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from application.player import EpicMusicPlayer
 
 _logger = log.getLogger(__name__)
 
-class NetLobby:
+class NetLobby(EventManager):
     """
     A network lobby.
     """
+    EVENT_MEMBERS_CHANGED = "members_changed"
+    
+    _APPLICATION_MESSAGE_TYPE = 'application' # typo
+
     _port: int
     _backend: NetBackend
 
@@ -18,10 +31,26 @@ class NetLobby:
 
     _pending_leader_msgs: list = []
 
+    _player: "EpicMusicPlayer"
+
     def __init__(self) -> None:
+        super().__init__()
+        self._register_event(self.EVENT_MEMBERS_CHANGED)
+
         self._port = random.randint(10000, 30000)
         _logger.info(f'Listening on port {self._port}')
         self._backend = TcpBackend(self._port)
+
+    def register_player(self, player: "EpicMusicPlayer"):
+        self._player = player
+        self._player.lobby = self
+
+    def remove_player(self):
+        if self._player is not None:
+            if self.is_leader():
+                pass # TODO: Send a leader election initiation and then leave or just leave idk
+            else:
+                pass # TODO: Send leave message to leader
 
     def create_lobby(self) -> None:
         """Starts a new lobby."""
@@ -83,6 +112,7 @@ class NetLobby:
                 # Leader is telling us about the new member
                 _logger.info(f'New lobby member: {msg["name"]}')
                 self._members.add(msg['name'])
+                self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
             case 'i_am_leader':
                 # A new leader has appeared
                 self._leader = msg['name']
@@ -91,6 +121,8 @@ class NetLobby:
                 for msg in self._pending_leader_msgs:
                     self.send_to_leader(msg)
                 self._pending_leader_msgs = []
+            case self._APPLICATION_MESSAGE_TYPE:
+                self._process_application_message(pickle.loads(msg['message']))
 
     def is_leader(self) -> bool:
         return self._identity == self._leader
@@ -117,8 +149,66 @@ class NetLobby:
             if not success:
                 pass # TODO remove member?
     
+    def application_request(self, message: ApplicationMessage):
+        if self.is_leader():
+            self.broadcast(self._create_application_message(message))
+            self._execute_application_message(message)
+        else:
+            self.send_to_leader(self._create_application_message(message))
+
+    def request_stop(self, current_timestamp: int):
+        self.application_request(StopMessage(current_timestamp))
+
+    def request_resume(self, current_timestamp: int):
+        self.application_request(ResumeMessage(current_timestamp))
+
+    def request_jump_to_timestamp(self, current_timestamp: int, destination_timestamp: int):
+        self.application_request(JumpToTimestampMessage(current_timestamp, destination_timestamp))
+
+    def request_skip(self, current_timestamp: int):
+        self.application_request(SkipMessage(current_timestamp))
+
     def _start_leader_election(self):
         pass # TODO implement leader elections
+
+    def _process_application_message(self, message: ApplicationMessage):
+        _logger.info(f"Received application message {type(message).__name__}: {message.__dict__}")
+
+        if self._check_application_message(message):
+            if self.is_leader():
+                self.broadcast(self._create_application_message(message))
+            self._execute_application_message(message)
+
+    def _check_application_message(self, message: ApplicationMessage) -> bool:
+        match message.command_type:
+            case CommandType.Stop.value:
+                return not self._player.pause
+            
+            case CommandType.Resume.value:
+                return self._player.pause
+
+            case CommandType.JumpToTimestamp.value:
+                return True
+
+            case CommandType.Skip.value:
+                return True
+
+    def _execute_application_message(self, message: ApplicationMessage):
+        match message.command_type:
+            case CommandType.Stop.value:
+                self._player.do_pause()
+            
+            case CommandType.Resume.value:
+                self._player.play()
+
+            case CommandType.JumpToTimestamp.value:
+                pass # TODO: 
+
+            case CommandType.Skip.value:
+                self._player.do_skip()
+
+    def _create_application_message(cls, message: ApplicationMessage):
+        return {'type': cls._APPLICATION_MESSAGE_TYPE, 'message': pickle.dumps(message)}
 
 def _write_message(msg) -> str:
     return json.dumps(msg)

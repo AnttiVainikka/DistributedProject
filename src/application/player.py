@@ -1,9 +1,26 @@
 import vlc #pip install python-vlc
 from pynput import keyboard #pip install pynput
 import time
+import os
+from net.lobby import NetLobby
+from event_manager.event_manager import EventManager
 
-class EpicMusicPlayer:
+
+class EpicMusicPlayer(EventManager):
+    EVENT_TIMESTAMP = "timestamp_changed"
+    EVENT_CHANGED = "music_changed"
+    EVENT_PAUSED = "music_paused"
+    EVENT_STARTED = "music_started"
+    EVENT_SONG_LENGTH = "song_length"
+
     def __init__(self,playlist :list):
+        super().__init__()
+        self._register_event(self.EVENT_TIMESTAMP)
+        self._register_event(self.EVENT_CHANGED)
+        self._register_event(self.EVENT_PAUSED)
+        self._register_event(self.EVENT_STARTED)
+        self._register_event(self.EVENT_SONG_LENGTH)
+
         self.playlist = []
         self.vlc_instance = vlc.Instance()
         self.player = self.vlc_instance.media_player_new()
@@ -12,80 +29,47 @@ class EpicMusicPlayer:
             self.playlist.append(Song(self.vlc_instance,song))
         self.song = self.playlist[0]
         self.player.set_media(self.song.media)
+        self.player.event_manager().event_attach(vlc.EventType.MediaPlayerEndReached, self._media_finished)
         self.pause = False
         self.next = False
         self.exit = False
         self.skip = False
         self.timestamp = ""
-
-    def on_press(self,key):
-        pressed = '{0}'.format(key)
-        keys = ["'0'","'1'","'2'","'3'","'4'","'5'","'6'","'7'","'8'","'9'","'t'"]
-        if self.skip:
-            if pressed in keys:
-                if pressed == keys[10]:
-                    self.skip = False
-                else:
-                    self.timestamp += pressed.replace("'","")
-        else:
-            if pressed == keys[1]:#pause
-                if self.pause == False:
-                    self.pause = True
-                else:
-                    self.pause = False
-            if pressed == keys[2]:#skip
-                self.next = True
-            if pressed == keys[3]:#exit
-                self.exit = True
-            if pressed == keys[4]:#print timestamp
-                self.skip = True
+        self.lobby: NetLobby = None
 
     def start(self):
-        print("Playing: "+self.song.name+"\n1: Pause    2: Next\n3: Exit     4: Skip")
-        listener = keyboard.Listener(on_press=self.on_press)
-        listener.start()
-        while True:
-            if not self.pause:
-                self.play()
-            if self.pause and self.player.is_playing():
-                self.player.set_pause(1) #TODO Send message to pause
-            if self.next:
-                self.next = False
-                self.next_song() #TODO Send message to skip to next song
-            if self.exit:
-                break #TODO Send message that this node is leaving lobby
-            if self.skip:
-                timestamp = self.player.get_time()/1000
-                duration = self.player.get_length()/1000
-                print(f"{int(timestamp)}/{int(duration)}")
-                print("Type second to skip to. Press 't' to finish.")
-                while self.skip:
-                    if not self.player.is_playing() and not self.pause:
-                        self.skip = False
-                        self.timestamp = ""
-                        self.next_song()
-                if not self.timestamp:
-                    print("Skipping canceled")
-                else:
-                    self.skip_to_timestamp(self.timestamp)
+        self.pause = True
+        previous_timestamp = 0
 
+        self._raise_event(self.EVENT_CHANGED, self.song.name, 0) # Cannot get the length here
+        self._raise_event(self.EVENT_PAUSED, self.song.name, 0)
+        while not self.exit:
+            current_timestamp = self.player.get_time() // 1000
+            if abs(current_timestamp - previous_timestamp) > 0.5:
+                self._raise_event(self.EVENT_TIMESTAMP, current_timestamp)
+                previous_timestamp = current_timestamp
+
+    def do_exit(self):
+        self.exit = True
+        # TODO: message
+
+    def do_skip(self):
+        self.next_song()
+
+    def do_pause(self):
+        self.pause = True
+        self.player.set_pause(1)
+        self._raise_event(self.EVENT_PAUSED, self.song.name, self.player.get_time() / 1000)
+    
     def play(self):
+        self.pause = False
         self.player.play()
-        time.sleep(2) # VLC needs time to get ready
-        while (self.pause,self.next,self.exit,self.skip) == (False,False,False,False):
-            if not self.player.is_playing():
-                self.next_song()
-                break
-
-    def next_song(self):
-        if self.track == len(self.playlist)-1:
-            self.song = self.playlist[0]
-            self.track = 0
-        else:
-            self.track += 1
-            self.song = self.playlist[self.track]
-        self.player.set_media(self.song.media)
-        print("Playing: "+self.song.name)
+        time.sleep(2)
+        # So I have to raise this here, because for some reasons I cannot query it before playing... or I'm just dumb
+        if self.song.length == 0:
+            self.song.length = int(self.player.get_length() / 1000)
+            self._raise_event(self.EVENT_SONG_LENGTH, self.song.length)
+        self._raise_event(self.EVENT_STARTED, self.song.name, self.player.get_time() / 1000)
 
     def skip_to_timestamp(self,timestamp):
         # Skipping fails sometimes when skipping while paused
@@ -96,15 +80,54 @@ class EpicMusicPlayer:
         if percentage <= 1 and percentage >= 0:
             self.player.set_position(percentage)
             timestamp = self.player.get_time()/1000
-            print(f"Skipped to {int(timestamp)}/{int(duration)}")
         else:
             print("Invalid second")
+
+    def next_song(self):
+        if self.track == len(self.playlist)-1:
+            self.song = self.playlist[0]
+            self.track = 0
+        else:
+            self.track += 1
+            self.song = self.playlist[self.track]
+        self.player.set_media(self.song.media)
+        self._raise_event("music_changed", self.song.name, 0) # Cannot get length here
+        if not self.pause:
+            self.play()
+
+    def _media_finished(self, event):
+        if self.lobby is not None:
+            if self.lobby.is_leader():
+                self.request_skip()
+        else:
+            self.request_skip()
+
+    def request_pause(self):
+        if self.lobby is not None:
+            self.lobby.request_stop(self.player.get_time())
+        else:
+            self.do_pause()
+
+    def request_resume(self):
+        if self.lobby is not None:
+            self.lobby.request_resume(self.player.get_time())
+        else:
+            self.play()
+
+    def request_skip(self):
+        if self.lobby is not None:
+            self.lobby.request_skip(self.player.get_time())
+        else:
+            self.do_skip()
+
+    def request_skip_to_timestamp(self, timestamp: int):
+        if self.lobby is not None:
+            self.lobby.request_jump_to_timestamp(self.player.get_time(), timestamp)
+        else:
+            self.skip_to_timestamp(timestamp)
 
 class Song:
     def __init__(self, vlc_instance,song :str):
         self.media = vlc_instance.media_new(song)
         self.name = song.replace("songs/","").replace(".mp3","").replace(".mpga","")
-
-songs = ["songs/[Copyright Free Romantic Music] - .mpga","songs/Orchestral Trailer Piano Music (No Copyright) .mpga"]
-player = EpicMusicPlayer(songs)
-player.start()
+        self.length: int = 0
