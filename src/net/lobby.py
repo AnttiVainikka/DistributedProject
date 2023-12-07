@@ -78,6 +78,8 @@ class NetLobby(EventManager):
 
     def handle_msg(self):
         source, data = self._backend.receive()
+        if source is None or data is None:
+            return 
         msg = _read_message(data)
         _logger.info(f'Received message: {msg}')
 
@@ -92,6 +94,7 @@ class NetLobby(EventManager):
                     self._identity = msg['target'] # Out public IP address is now known
                     self._leader = self._identity
                     self._members = set([self._identity])
+                    self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
                     _logger.info(f'Initialized lobby, I am leader {self._identity}')
                 _logger.info(f'Forwarding new member request to leader')
                 self.send_to_leader({'type': 'request_new_member', 'port': msg['return_port'], 'identity': source.split(':')[0]})
@@ -100,6 +103,7 @@ class NetLobby(EventManager):
                 name = f'{msg["identity"]}:{msg["port"]}'
                 _logger.info(f'Approving new member {name}')
                 self._members.add(name)
+                self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
                 # Tell them about the lobby
                 self.send_to(name, {
                     'type': 'lobby_info',
@@ -133,6 +137,7 @@ class NetLobby(EventManager):
                 self._identity = f'{msg["identity"]}:{self._port}'
                 self._leader = msg['leader']
                 self._members = set(msg['members'])
+                self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
                 _logger.info(f'Joined lobby, I am {self._identity} (leader: {self._leader})')
             case 'start_election':
                 # An election is underway
@@ -185,17 +190,17 @@ class NetLobby(EventManager):
         else:
             self.send_to_leader(self._create_application_message(message))
 
-    def request_stop(self, current_timestamp: int):
-        self.application_request(StopMessage(current_timestamp))
+    def request_stop(self):
+        self.application_request(StopMessage())
 
-    def request_resume(self, current_timestamp: int):
-        self.application_request(ResumeMessage(current_timestamp))
+    def request_resume(self):
+        self.application_request(ResumeMessage())
 
-    def request_jump_to_timestamp(self, current_timestamp: int, destination_timestamp: int):
-        self.application_request(JumpToTimestampMessage(current_timestamp, destination_timestamp))
+    def request_jump_to_timestamp(self, destination_timestamp: int):
+        self.application_request(JumpToTimestampMessage(destination_timestamp))
 
-    def request_skip(self, current_timestamp: int):
-        self.application_request(SkipMessage(current_timestamp))
+    def request_set(self, index: int):
+        self.application_request(SetMessage(index))
 
     def shutdown(self) -> None:
         self._backend.shutdown()
@@ -246,7 +251,7 @@ class NetLobby(EventManager):
             case CommandType.JumpToTimestamp.value:
                 return True
 
-            case CommandType.Skip.value:
+            case CommandType.Set.value:
                 return True
 
     def _execute_application_message(self, message: ApplicationMessage):
@@ -258,10 +263,10 @@ class NetLobby(EventManager):
                 self._player.play()
 
             case CommandType.JumpToTimestamp.value:
-                pass # TODO: 
+                self._player.skip_to_timestamp(message.destination_timestamp)
 
-            case CommandType.Skip.value:
-                self._player.do_skip()
+            case CommandType.Set.value:
+                self._player.set_song(message.index)
 
     def _create_application_message(cls, message: ApplicationMessage):
         return {'type': cls._APPLICATION_MESSAGE_TYPE, 'message': base64.b64encode(pickle.dumps(message)).decode('utf-8')}

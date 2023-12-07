@@ -8,6 +8,10 @@ from gui.connect import connect_window
 from gui.music_player import music_player_window
 from gui.members import members_window
 
+import log
+
+_logger = log.getLogger(__name__)
+
 class Application:
     def __init__(self):
         self.main_window = Tk()
@@ -17,8 +21,11 @@ class Application:
         self._lobby = NetLobby()
         self._player_thread = None
         self._should_exit = False
+
+        _logger.debug("Starting network thread...")
         self._net_thread = threading.Thread(target=self._net_main)
         self._net_thread.start()
+        _logger.debug("Network thread is running")
 
     def _net_main(self):
         while not self._should_exit:
@@ -29,13 +36,17 @@ class Application:
         self.main_window.mainloop()
 
     def main_host_pushed(self):
+        print(f"Listening on port {self._lobby._port}")
         music_player_window(self.main_window, self._player)
-        self._lobby.create_lobby()
         self._lobby.register_player(self._player)
-        #members_win = Toplevel(self.main_window)
-        #members_window(members_win, self._lobby)
+
+        members_win = Toplevel(self.main_window)
+        members_window(members_win, self._lobby)
+        
+        _logger.debug("Starting player thread...")
         self._player_thread = threading.Thread(target=self._player.start)
         self._player_thread.start()
+        _logger.debug("Player thread is running")
 
     def main_connect_pushed(self):
         connect_window(self.main_window, self.connect_connect_pushed, self.connect_back_pushed)
@@ -48,17 +59,30 @@ class Application:
 
         music_player_window(self.main_window, self._player)
         self._lobby.register_player(self._player)
+
+        members_win = Toplevel(self.main_window)
+        members_window(members_win, self._lobby)
+
+        _logger.debug("Starting player thread...")
         self._player_thread = threading.Thread(target=self._player.start)
         self._player_thread.start()
+        _logger.debug("Player thread is running")
 
     def connect_back_pushed(self):
         main_window(self.main_window, self.main_host_pushed, self.main_connect_pushed, self.main_exit_pushed)
 
     def on_close(self):
+        _logger.debug("Stopping player thread...")
         self._player.do_exit()
         self._player_thread.join()
+        _logger.debug("Player thread has stopped")
+        
+        _logger.debug("Stopping network thread...")
         self._should_exit = True
         self._lobby.shutdown()
+        self._net_thread.join()
+        _logger.debug("Network thread has stopped")
+
         self.main_window.destroy()
 
 app = Application()

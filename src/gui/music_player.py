@@ -54,6 +54,8 @@ class MusicPlayerFrame:
         ts = int(timestamp)
         if ts > self._max_timestamp:
             ts = self._max_timestamp
+        if ts < 0:
+            ts = 0
         self._timestamp_text.set(f"{ts} / {self._max_timestamp}")
         if not self._is_slider_dragged:
             self._slider.set(ts)
@@ -70,7 +72,8 @@ class MusicPlayerFrame:
 
     def _changed(self, name: str, max_timestamp: int):
         self._name_text.set(name)
-        #self.set_max_timestamp(max_timestamp)
+        self.set_max_timestamp(max_timestamp)
+        self.set_timestamp(0)
 
     def _slider_pressed(self, event):
         self._is_slider_dragged = True
