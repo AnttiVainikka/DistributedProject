@@ -16,6 +16,15 @@ class Application:
         self._player = EpicMusicPlayer(songs)
         self._lobby = NetLobby()
         self._player_thread = None
+        self._should_exit = False
+        self._net_thread = threading.Thread(target=self._net_main)
+        self._net_thread.start()
+
+    def _net_main(self):
+        print('net_main')
+        while not self._should_exit:
+            print('Receive')
+            self._lobby.handle_msg()
 
     def start(self):
         main_window(self.main_window, self.main_host_pushed, self.main_connect_pushed, self.main_exit_pushed)
@@ -23,7 +32,8 @@ class Application:
 
     def main_host_pushed(self):
         music_player_window(self.main_window, self._player)
-        #self._lobby.register_player(self._player)
+        self._lobby.create_lobby()
+        self._lobby.register_player(self._player)
         #members_win = Toplevel(self.main_window)
         #members_window(members_win, self._lobby)
         self._player_thread = threading.Thread(target=self._player.start)
@@ -36,7 +46,12 @@ class Application:
         self.main_window.destroy()
 
     def connect_connect_pushed(self, ip: str):
-        print(f"IP: {ip}")
+        self._lobby.join_lobby(ip)
+
+        music_player_window(self.main_window, self._player)
+        self._lobby.register_player(self._player)
+        self._player_thread = threading.Thread(target=self._player.start)
+        self._player_thread.start()
 
     def connect_back_pushed(self):
         main_window(self.main_window, self.main_host_pushed, self.main_connect_pushed, self.main_exit_pushed)
@@ -44,6 +59,8 @@ class Application:
     def on_close(self):
         self._player.do_exit()
         self._player_thread.join()
+        self._should_exit = True
+        self._lobby.shutdown()
         self.main_window.destroy()
 
 app = Application()

@@ -83,6 +83,7 @@ class MusicPlayerFrame:
         self._player.request_pause()
 
     def _start_pushed(self):
+        print('start pushed')
         self._player.request_resume()
 
     def _next_pushed(self):

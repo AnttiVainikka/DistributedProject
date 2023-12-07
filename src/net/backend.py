@@ -15,6 +15,10 @@ class NetBackend(ABC):
     def send(self, dest: IpAddress, data: str) -> None:
         pass
 
+    @abstractmethod
+    def shutdown(self) -> None:
+        pass
+
 class TcpBackend(NetBackend):
     """Quick and dirty networking."""
     server: socket.socket
@@ -50,3 +54,6 @@ class TcpBackend(NetBackend):
         except socket.error:
             return False
         return True
+    
+    def shutdown(self) -> None:
+        self.server.shutdown(socket.SHUT_RDWR)

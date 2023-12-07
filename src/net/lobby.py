@@ -1,3 +1,4 @@
+import base64
 import json
 import log
 import random
@@ -40,6 +41,7 @@ class NetLobby(EventManager):
         self._port = random.randint(10000, 30000)
         _logger.info(f'Listening on port {self._port}')
         self._backend = TcpBackend(self._port)
+        self._members = []
 
     def register_player(self, player: "EpicMusicPlayer"):
         self._player = player
@@ -62,17 +64,6 @@ class NetLobby(EventManager):
         _logger.info(f'Joining a lobby at {name_of_member}...')
         # Ask the given member to join the lobby
         self.send_to(name_of_member, {'type': 'request_join', 'return_port': self._port, 'target': name_of_member})
-
-        # We'll hear back from the leader...
-        _source, data = self._backend.receive()
-        reply = _read_message(data)
-        if reply['type'] != 'lobby_info':
-            raise RuntimeError() # FIXME how to handle this?
-        
-        self._identity = f'{reply["identity"]}:{self._port}'
-        self._leader = reply['leader']
-        self._members = set(reply['members'])
-        _logger.info(f'Joined lobby, I am {self._identity} (leader: {self._leader})')
 
     def handle_msg(self):
         source, data = self._backend.receive()
@@ -121,8 +112,13 @@ class NetLobby(EventManager):
                 for msg in self._pending_leader_msgs:
                     self.send_to_leader(msg)
                 self._pending_leader_msgs = []
+            case 'lobby_info':
+                self._identity = f'{msg["identity"]}:{self._port}'
+                self._leader = msg['leader']
+                self._members = set(msg['members'])
+                _logger.info(f'Joined lobby, I am {self._identity} (leader: {self._leader})')
             case self._APPLICATION_MESSAGE_TYPE:
-                self._process_application_message(pickle.loads(msg['message']))
+                self._process_application_message(pickle.loads(base64.b64decode(msg['message'])))
 
     def is_leader(self) -> bool:
         return self._identity == self._leader
@@ -150,6 +146,7 @@ class NetLobby(EventManager):
                 pass # TODO remove member?
     
     def application_request(self, message: ApplicationMessage):
+        print('app_request', self.is_leader())
         if self.is_leader():
             self.broadcast(self._create_application_message(message))
             self._execute_application_message(message)
@@ -160,6 +157,7 @@ class NetLobby(EventManager):
         self.application_request(StopMessage(current_timestamp))
 
     def request_resume(self, current_timestamp: int):
+        print('request_resume')
         self.application_request(ResumeMessage(current_timestamp))
 
     def request_jump_to_timestamp(self, current_timestamp: int, destination_timestamp: int):
@@ -167,6 +165,9 @@ class NetLobby(EventManager):
 
     def request_skip(self, current_timestamp: int):
         self.application_request(SkipMessage(current_timestamp))
+
+    def shutdown(self) -> None:
+        self._backend.shutdown()
 
     def _start_leader_election(self):
         pass # TODO implement leader elections
@@ -208,7 +209,7 @@ class NetLobby(EventManager):
                 self._player.do_skip()
 
     def _create_application_message(cls, message: ApplicationMessage):
-        return {'type': cls._APPLICATION_MESSAGE_TYPE, 'message': pickle.dumps(message)}
+        return {'type': cls._APPLICATION_MESSAGE_TYPE, 'message': base64.b64encode(pickle.dumps(message)).decode('utf-8')}
 
 def _write_message(msg) -> str:
     return json.dumps(msg)
