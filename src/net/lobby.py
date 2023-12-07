@@ -179,7 +179,6 @@ class NetLobby(EventManager):
                 pass # TODO remove member?
     
     def application_request(self, message: ApplicationMessage):
-        print('app_request', self.is_leader())
         if self.is_leader():
             self.broadcast(self._create_application_message(message))
             self._execute_application_message(message)
@@ -190,7 +189,6 @@ class NetLobby(EventManager):
         self.application_request(StopMessage(current_timestamp))
 
     def request_resume(self, current_timestamp: int):
-        print('request_resume')
         self.application_request(ResumeMessage(current_timestamp))
 
     def request_jump_to_timestamp(self, current_timestamp: int, destination_timestamp: int):

@@ -21,9 +21,7 @@ class Application:
         self._net_thread.start()
 
     def _net_main(self):
-        print('net_main')
         while not self._should_exit:
-            print('Receive')
             self._lobby.handle_msg()
 
     def start(self):

@@ -108,7 +108,6 @@ class EpicMusicPlayer(EventManager):
             self.do_pause()
 
     def request_resume(self):
-        print('request_resume', self.lobby)
         if self.lobby is not None:
             self.lobby.request_resume(self.player.get_time())
         else:
