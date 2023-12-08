@@ -117,6 +117,24 @@ class NetLobby(EventManager):
                 self._leader = msg['leader']
                 self._members = set(msg['members'])
                 _logger.info(f'Joined lobby, I am {self._identity} (leader: {self._leader})')
+            case 'start_election':
+                #TODO start an election for a new leader
+                pass
+            case 'election_OK':
+                #TODO ACK ongoing election, inform nodes with higher ID about the election
+                pass
+            case 'audio_file':
+                #TODO send audio file to a member
+                pass
+            case 'status_ready':
+                #TODO audio downloaded and ready to play
+                pass
+            case 'current_status':
+                #TODO send current timestamp and playing/paused status to member
+                pass
+            case 'health_check':
+                #TODO check client responsiveness
+                pass
             case self._APPLICATION_MESSAGE_TYPE:
                 self._process_application_message(pickle.loads(base64.b64decode(msg['message'])))
 
