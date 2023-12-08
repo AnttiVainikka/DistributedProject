@@ -55,6 +55,7 @@ class EpicMusicPlayer(EventManager):
         # Connect the necessary events
         event_manager: vlc.EventManager = self.player.event_manager()
         event_manager.event_attach(vlc.EventType.MediaListPlayerNextItemSet, self._event_media_set)
+        self.player.get_media_player().event_manager().event_attach(vlc.EventType.MediaPlayerTimeChanged, self._time_changed)
 
         self.track = 0
         self.song = self.playlist[0]
@@ -68,6 +69,9 @@ class EpicMusicPlayer(EventManager):
 
         self.player.play()
         self.player.set_pause(1)
+
+    def _time_changed(self, event):
+        self._raise_event(self.EVENT_TIMESTAMP, event.u.new_time)
 
     @property
     def current_media(self) -> int:
@@ -83,26 +87,17 @@ class EpicMusicPlayer(EventManager):
         self.skip_to_timestamp(state.timestamp)
         if state.playing:
             self.play()
+        else:
+            self.player.set_pause(1)
 
     def start(self):
         self.pause = True
-        previous_timestamp = 0
-
         self._raise_event(self.EVENT_CHANGED, self.song.name, self.song.length)
         self._raise_event(self.EVENT_PAUSED, self.song.name, 0)
-        while not self.exit:
-            if not self.pause:
-                current_timestamp = self.player.get_media_player().get_time()
-                if abs(current_timestamp - previous_timestamp) > 500: # After every half a second
-                    self._raise_event(self.EVENT_TIMESTAMP, current_timestamp)
-                    previous_timestamp = current_timestamp
 
     def do_exit(self):
         self.exit = True
         # TODO: message
-
-    def do_skip(self):
-        self.next_song()
 
     def do_pause(self):
         self.pause = True
@@ -116,7 +111,7 @@ class EpicMusicPlayer(EventManager):
 
     def skip_to_timestamp(self,timestamp):
         # Skipping fails sometimes when skipping while paused
-        duration = self.player.get_media_player().get_length()
+        duration = self.playlist[self.current_media].length
         if timestamp >= duration or timestamp < 0:
             return
         
@@ -132,22 +127,6 @@ class EpicMusicPlayer(EventManager):
             if not is_playing:
                 self.player.set_pause(1)
             self._raise_event(self.EVENT_CHANGED, self.playlist[index].name, self.playlist[index].length)
-
-    def next_song(self):
-        orig_pause = self.pause
-        self.pause = True
-        if self.track == len(self.playlist)-1:
-            self.song = self.playlist[0]
-            self.track = 0
-        else:
-            self.track += 1
-            self.song = self.playlist[self.track]
-
-        self.player.set_media(self.song.media)
-        self.pause = orig_pause
-        self._raise_event(self.EVENT_CHANGED, self.song.name, self.song.length)
-        if not self.pause:
-            self.play()
 
     def request_pause(self):
         if self.lobby is not None:

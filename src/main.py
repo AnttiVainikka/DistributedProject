@@ -19,7 +19,7 @@ class Application:
         songs = ["src/songs/[Copyright Free Romantic Music] - .mpga","src/songs/Orchestral Trailer Piano Music (No Copyright) .mpga"]
         self._player = EpicMusicPlayer(songs)
         self._lobby = NetLobby()
-        self._player_thread = None
+        self._lobby.register_player(self._player)
         self._should_exit = False
 
         _logger.debug("Starting network thread...")
@@ -38,15 +38,11 @@ class Application:
     def main_host_pushed(self):
         print(f"Listening on port {self._lobby._port}")
         music_player_window(self.main_window, self._player)
-        self._lobby.register_player(self._player)
-
         members_win = Toplevel(self.main_window)
         members_window(members_win, self._lobby)
         
-        _logger.debug("Starting player thread...")
-        self._player_thread = threading.Thread(target=self._player.start)
-        self._player_thread.start()
-        _logger.debug("Player thread is running")
+        self._lobby.register_player(self._player)
+        self._player.start()
 
     def main_connect_pushed(self):
         connect_window(self.main_window, self.connect_connect_pushed, self.connect_back_pushed)
@@ -55,27 +51,19 @@ class Application:
         self.main_window.destroy()
 
     def connect_connect_pushed(self, ip: str):
-        self._lobby.join_lobby(ip)
-
         music_player_window(self.main_window, self._player)
-        self._lobby.register_player(self._player)
-
         members_win = Toplevel(self.main_window)
         members_window(members_win, self._lobby)
-
-        _logger.debug("Starting player thread...")
-        self._player_thread = threading.Thread(target=self._player.start)
-        self._player_thread.start()
-        _logger.debug("Player thread is running")
+        
+        self._lobby.join_lobby(ip)
+        self._lobby.register_player(self._player)
+        self._player.start()
 
     def connect_back_pushed(self):
         main_window(self.main_window, self.main_host_pushed, self.main_connect_pushed, self.main_exit_pushed)
 
     def on_close(self):
-        _logger.debug("Stopping player thread...")
         self._player.do_exit()
-        self._player_thread.join()
-        _logger.debug("Player thread has stopped")
         
         _logger.debug("Stopping network thread...")
         self._should_exit = True
