@@ -114,6 +114,7 @@ class NetLobby(EventManager):
                 })
                 # Tell everyone in the lobby about them
                 self.broadcast({'type': 'new_member', 'name': name})
+                self._send_player_state(name)
             case 'new_member':
                 # Leader is telling us about the new member
                 _logger.info(f'New lobby member: {msg["name"]}')
@@ -232,6 +233,11 @@ class NetLobby(EventManager):
                 pass
 
 
+    def _send_player_state(self, name: str):
+        state = StateMessage(self._player.get_state())
+        msg = self._create_application_message(state)
+        self.send_to(name, msg)
+
     def _process_application_message(self, message: ApplicationMessage):
         _logger.info(f"Received application message {type(message).__name__}: {message.__dict__}")
 
@@ -253,6 +259,9 @@ class NetLobby(EventManager):
 
             case CommandType.Set.value:
                 return True
+            
+            case CommandType.State.value:
+                return True
 
     def _execute_application_message(self, message: ApplicationMessage):
         match message.command_type:
@@ -267,6 +276,9 @@ class NetLobby(EventManager):
 
             case CommandType.Set.value:
                 self._player.set_song(message.index)
+
+            case CommandType.State.value:
+                self._player.set_state(message.state)
 
     def _create_application_message(cls, message: ApplicationMessage):
         return {'type': cls._APPLICATION_MESSAGE_TYPE, 'message': base64.b64encode(pickle.dumps(message)).decode('utf-8')}

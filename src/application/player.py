@@ -1,4 +1,5 @@
 import vlc #pip install python-vlc
+from dataclasses import dataclass
 from net.lobby import NetLobby
 from event_manager.event_manager import EventManager
 
@@ -8,10 +9,16 @@ def _audio_duration(file_path):
     try:
         audio = MP3(file_path)
         duration_seconds = audio.info.length
-        return duration_seconds
+        return duration_seconds * 1000
     except Exception as e:
         print(f"Error: {e}")
         return -1
+
+@dataclass
+class State:
+    index: int
+    timestamp: int
+    playing: int
 
 class EpicMusicPlayer(EventManager):
     EVENT_TIMESTAMP = "timestamp_changed"
@@ -66,6 +73,17 @@ class EpicMusicPlayer(EventManager):
     def current_media(self) -> int:
         return self.media_list.index_of_item(self.player.get_media_player().get_media())
 
+    def get_state(self) -> State:
+        return State(self.current_media,
+                     self.player.get_media_player().get_time(),
+                     self.player.is_playing())
+
+    def set_state(self, state: State):
+        self.set_song(state.index)
+        self.skip_to_timestamp(state.timestamp)
+        if state.playing:
+            self.play()
+
     def start(self):
         self.pause = True
         previous_timestamp = 0
@@ -74,8 +92,8 @@ class EpicMusicPlayer(EventManager):
         self._raise_event(self.EVENT_PAUSED, self.song.name, 0)
         while not self.exit:
             if not self.pause:
-                current_timestamp = self.player.get_media_player().get_time() // 1000
-                if abs(current_timestamp - previous_timestamp) > 0.5:
+                current_timestamp = self.player.get_media_player().get_time()
+                if abs(current_timestamp - previous_timestamp) > 500: # After every half a second
                     self._raise_event(self.EVENT_TIMESTAMP, current_timestamp)
                     previous_timestamp = current_timestamp
 
@@ -89,25 +107,21 @@ class EpicMusicPlayer(EventManager):
     def do_pause(self):
         self.pause = True
         self.player.set_pause(1)
-        self._raise_event(self.EVENT_PAUSED, self.song.name, self.player.get_media_player().get_time() / 1000)
+        self._raise_event(self.EVENT_PAUSED, self.song.name, self.player.get_media_player().get_time())
     
     def play(self):
         self.pause = False
         self.player.play()
-        self._raise_event(self.EVENT_STARTED, self.song.name, self.player.get_media_player().get_time() / 1000)
+        self._raise_event(self.EVENT_STARTED, self.song.name, self.player.get_media_player().get_time())
 
     def skip_to_timestamp(self,timestamp):
         # Skipping fails sometimes when skipping while paused
-        duration = self.player.get_media_player().get_length()/1000
-        percentage = round(int(timestamp)/duration,2)
-        self.timestamp = ""
-        self.skip = False
-        if percentage <= 1 and percentage >= 0:
-            self.player.get_media_player().set_position(percentage)
-            timestamp = self.player.get_media_player().get_time()/1000
-            self._raise_event(self.EVENT_TIMESTAMP, timestamp)
-        else:
-            print("Invalid second")
+        duration = self.player.get_media_player().get_length()
+        if timestamp >= duration or timestamp < 0:
+            return
+        
+        self.player.get_media_player().set_time(timestamp)
+        self._raise_event(self.EVENT_TIMESTAMP, timestamp)
 
     def set_song(self, index: int):
         if self.current_media != index:

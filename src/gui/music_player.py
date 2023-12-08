@@ -47,11 +47,11 @@ class MusicPlayerFrame:
         self._name_text.set(name)
 
     def set_max_timestamp(self, max_timestamp: int):
-        self._max_timestamp = int(max_timestamp)
+        self._max_timestamp = int(max_timestamp / 1000)
         self._slider.config(from_=0, to=self._max_timestamp)
 
     def set_timestamp(self, timestamp: int):
-        ts = int(timestamp)
+        ts = int(timestamp / 1000)
         if ts > self._max_timestamp:
             ts = self._max_timestamp
         if ts < 0:
@@ -80,7 +80,7 @@ class MusicPlayerFrame:
 
     def _slider_released(self, event):
         self._is_slider_dragged = False
-        self._player.request_skip_to_timestamp(self._slider.get())
+        self._player.request_skip_to_timestamp(self._slider.get() * 1000)
 
     def _pause_pushed(self):
         self._player.request_pause()

@@ -5,6 +5,7 @@ class CommandType(Enum):
     Resume = 2
     JumpToTimestamp = 3
     Set = 4
+    State = 5
 
 class ApplicationMessage:
     command_type: int
@@ -31,3 +32,8 @@ class JumpToTimestampMessage(ApplicationMessage):
     def __init__(self, destination_timestamp: int = -1):
         super().__init__(CommandType.JumpToTimestamp.value)
         self.destination_timestamp = destination_timestamp
+
+class StateMessage(ApplicationMessage):
+    def __init__(self, state):
+        super().__init__(CommandType.State.value)
+        self.state = state
