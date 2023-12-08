@@ -63,7 +63,7 @@ class NetLobby(EventManager):
             if self.is_leader():
                 pass # TODO: Send a leader election initiation and then leave or just leave idk
             else:
-                self.send_to_leader({'type': 'member_left', 'name': self._identity})
+                self.send_to_leader({'type': 'leave', 'name': self._identity})
 
     def create_lobby(self) -> None:
         """Starts a new lobby."""
@@ -120,11 +120,6 @@ class NetLobby(EventManager):
                 _logger.info(f'New lobby member: {msg["name"]}')
                 self._members.add(msg['name'])
                 self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
-            case 'member_left':
-                # A member has left
-                _logger.info(f'Lobby member: {msg["name"]} left')
-                if self.is_leader():
-                    self.broadcast({'type': 'member_left', 'name': msg['name']})
                 self._members.remove(msg['name'])
             case 'i_am_leader':
                 # A new leader has appeared
@@ -156,6 +151,14 @@ class NetLobby(EventManager):
                 # confirm health check
                 self._health_check_ack_received = True
                 _logger.info(f'I, {self._identity} received a health check ACK from {msg["name"]}')
+            case 'leave':
+                if msg['name'] in self._members:
+                    self._members.remove(msg['name'])
+                if self.is_leader():
+                    msg.pop('to_leader')
+                    self.broadcast(msg)
+                self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
+                _logger.info(f'{self._identity} has left the lobby')
             case self._APPLICATION_MESSAGE_TYPE:
                 self._process_application_message(pickle.loads(base64.b64decode(msg['message'])))
 

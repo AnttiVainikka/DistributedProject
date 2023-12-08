@@ -97,7 +97,8 @@ class EpicMusicPlayer(EventManager):
 
     def do_exit(self):
         self.exit = True
-        # TODO: message
+        if self.lobby is not None:
+            self.lobby.remove_player()
 
     def do_pause(self):
         self.pause = True
