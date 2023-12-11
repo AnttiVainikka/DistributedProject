@@ -3,6 +3,7 @@ import json
 import log
 import random
 import pickle
+from threading import Event
 from net.backend import IpAddress, NetBackend, TcpBackend
 
 from messages.messages import *
@@ -20,8 +21,12 @@ class NetLobby(EventManager):
     A network lobby.
     """
     EVENT_MEMBERS_CHANGED = "members_changed"
-    
+    EVENT_ELECTION_OK_RECEIVED = "election_OK"
+    EVENT_HEALTH_CHECK_RESPONSE_RECEIVED = "health_check_OK"
+
     _APPLICATION_MESSAGE_TYPE = 'application' # typo
+
+
 
     _port: int
     _backend: NetBackend
@@ -37,6 +42,8 @@ class NetLobby(EventManager):
     def __init__(self) -> None:
         super().__init__()
         self._register_event(self.EVENT_MEMBERS_CHANGED)
+        self._register_event(self.EVENT_ELECTION_OK_RECEIVED)
+        self._register_event(self.EVENT_HEALTH_CHECK_RESPONSE_RECEIVED)
 
         self._port = random.randint(10000, 30000)
         _logger.info(f'Listening on port {self._port}')
@@ -52,7 +59,7 @@ class NetLobby(EventManager):
             if self.is_leader():
                 pass # TODO: Send a leader election initiation and then leave or just leave idk
             else:
-                pass # TODO: Send leave message to leader
+                self.send_to_leader({'type': 'member_left', 'name': self._identity})
 
     def create_lobby(self) -> None:
         """Starts a new lobby."""
@@ -104,6 +111,12 @@ class NetLobby(EventManager):
                 _logger.info(f'New lobby member: {msg["name"]}')
                 self._members.add(msg['name'])
                 self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
+            case 'member_left':
+                # A member has left
+                _logger.info(f'Lobby member: {msg["name"]} left')
+                if self.is_leader():
+                    self.broadcast({'type': 'member_left', 'name': msg['name']})
+                self._members.remove(msg['name'])
             case 'i_am_leader':
                 # A new leader has appeared
                 self._leader = msg['name']
@@ -118,23 +131,26 @@ class NetLobby(EventManager):
                 self._members = set(msg['members'])
                 _logger.info(f'Joined lobby, I am {self._identity} (leader: {self._leader})')
             case 'start_election':
-                #TODO start an election for a new leader
-                pass
+                # An election is underway
+                _logger.info(f'I, {self._identity} received an election message from {msg["name"]}')
+                self.send_to(msg["name"], {'type': 'election_OK', 'return_port': self._port, 'target': msg["name"]})
+                for member in self._members:
+                    if self._identity < member: # IP address equals ID?
+                        self.send_to(member, {'type': 'start_election', 'return_port': self._port, 'target': member})
+                if False: # If no response is received
+                    self._leader = self._identity
+                    self.broadcast({'type': 'i_am_leader', 'name': self._identity})
             case 'election_OK':
-                #TODO ACK ongoing election, inform nodes with higher ID about the election
-                pass
-            case 'audio_file':
-                #TODO send audio file to a member
-                pass
-            case 'status_ready':
-                #TODO audio downloaded and ready to play
-                pass
-            case 'current_status':
-                #TODO send current timestamp and playing/paused status to member
-                pass
+                _logger.info(f'I, {self._identity} received a election OK from {msg["name"]}')
+                # TODO withdraw from election and wait for new leader
+                # self._raise_event(self.EVENT_ELECTION_OK_RECEIVED, self._members, self._identity, self._leader)
             case 'health_check':
-                #TODO check client responsiveness
-                pass
+                _logger.info(f'I, {self._identity} received a health check from {msg["name"]}')
+                self.send_to(msg["name"], {'type': 'health_check_ack', 'return_port': self._port, 'target': msg["name"]})
+            case 'health_check_ack':
+                _logger.info(f'I, {self._identity} received a health check ACK from {msg["name"]}')
+                # TODO confirm health check
+                # self._raise_event(self.EVENT_HEALTH_CHECK_RESPONSE_RECEIVED, self._members, self._identity, self._leader)
             case self._APPLICATION_MESSAGE_TYPE:
                 self._process_application_message(pickle.loads(base64.b64decode(msg['message'])))
 
