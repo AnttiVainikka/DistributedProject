@@ -213,12 +213,12 @@ class NetLobby(EventManager):
         for member in self._members:
                 if hash(self._identity) < hash(member): # IP address equals ID?
                     self.send_to(member, {'type': 'start_election', 'return_port': self._port, 'target': member})
-        waiting_thread = threading.Thread(target=self._wait_for_election_ok, args=(self))
+        waiting_thread = threading.Thread(target=self._wait_for_election_ok)
         waiting_thread.start()
 
     def _send_health_check(self, target): #how often should this be sent?
         self.send_to(target, {'type': 'health_check', 'return_port': self._port, 'target': target})
-        waiting_thread = threading.Thread(target=self._wait_for_health_check_response, args=(self, target))
+        waiting_thread = threading.Thread(target=self._wait_for_health_check_response, args=(target))
         waiting_thread.start()
 
     def _wait_for_election_ok(self):
