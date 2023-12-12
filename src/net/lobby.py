@@ -46,7 +46,7 @@ class NetLobby(EventManager):
         super().__init__()
         self._register_event(self.EVENT_MEMBERS_CHANGED)
 
-        self._port = random.randint(10000, 30000)
+        self._port = 30000
         _logger.info(f'Listening on port {self._port}')
         self._backend = TcpBackend(self._port)
         self._members = []

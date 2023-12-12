@@ -55,7 +55,7 @@ class Application:
         members_win = Toplevel(self.main_window)
         members_window(members_win, self._lobby)
         
-        self._lobby.join_lobby(ip)
+        self._lobby.join_lobby(f'{ip}:30000')
         self._lobby.register_player(self._player)
         self._player.start()
 
