@@ -3,6 +3,9 @@ import json
 import log
 import random
 import pickle
+import time
+import threading
+from threading import Event
 from net.backend import IpAddress, NetBackend, TcpBackend
 
 from messages.messages import *
@@ -20,8 +23,10 @@ class NetLobby(EventManager):
     A network lobby.
     """
     EVENT_MEMBERS_CHANGED = "members_changed"
-    
+
     _APPLICATION_MESSAGE_TYPE = 'application' # typo
+
+
 
     _port: int
     _backend: NetBackend
@@ -34,6 +39,9 @@ class NetLobby(EventManager):
 
     _player: "EpicMusicPlayer"
 
+    _election_ok_received: int
+    _health_check_ack_received: int
+
     def __init__(self) -> None:
         super().__init__()
         self._register_event(self.EVENT_MEMBERS_CHANGED)
@@ -42,6 +50,9 @@ class NetLobby(EventManager):
         _logger.info(f'Listening on port {self._port}')
         self._backend = TcpBackend(self._port)
         self._members = []
+
+        self._election_ok_received = False
+        self._health_check_ack_received = False
 
     def register_player(self, player: "EpicMusicPlayer"):
         self._player = player
@@ -52,7 +63,7 @@ class NetLobby(EventManager):
             if self.is_leader():
                 pass # TODO: Send a leader election initiation and then leave or just leave idk
             else:
-                pass # TODO: Send leave message to leader
+                self.send_to_leader({'type': 'member_left', 'name': self._identity})
 
     def create_lobby(self) -> None:
         """Starts a new lobby."""
@@ -104,6 +115,12 @@ class NetLobby(EventManager):
                 _logger.info(f'New lobby member: {msg["name"]}')
                 self._members.add(msg['name'])
                 self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
+            case 'member_left':
+                # A member has left
+                _logger.info(f'Lobby member: {msg["name"]} left')
+                if self.is_leader():
+                    self.broadcast({'type': 'member_left', 'name': msg['name']})
+                self._members.remove(msg['name'])
             case 'i_am_leader':
                 # A new leader has appeared
                 self._leader = msg['name']
@@ -117,6 +134,22 @@ class NetLobby(EventManager):
                 self._leader = msg['leader']
                 self._members = set(msg['members'])
                 _logger.info(f'Joined lobby, I am {self._identity} (leader: {self._leader})')
+            case 'start_election':
+                # An election is underway
+                _logger.info(f'I, {self._identity} received an election message from {msg["name"]}')
+                self.send_to(msg["name"], {'type': 'election_OK', 'return_port': self._port, 'target': msg["name"]})
+                self._start_leader_election()
+            case 'election_OK':
+                # withdraw from election and wait for new leader
+                self._election_ok_received = True
+                _logger.info(f'I, {self._identity} received a election OK from {msg["name"]}')
+            case 'health_check':
+                _logger.info(f'I, {self._identity} received a health check from {msg["name"]}')
+                self.send_to(msg["name"], {'type': 'health_check_ack', 'return_port': self._port, 'target': msg["name"]})
+            case 'health_check_ack':
+                # confirm health check
+                self._health_check_ack_received = True
+                _logger.info(f'I, {self._identity} received a health check ACK from {msg["name"]}')
             case self._APPLICATION_MESSAGE_TYPE:
                 self._process_application_message(pickle.loads(base64.b64decode(msg['message'])))
 
@@ -170,7 +203,31 @@ class NetLobby(EventManager):
         self._backend.shutdown()
 
     def _start_leader_election(self):
-        pass # TODO implement leader elections
+        for member in self._members:
+                if hash(self._identity) < hash(member): # IP address equals ID?
+                    self.send_to(member, {'type': 'start_election', 'return_port': self._port, 'target': member})
+        waiting_thread = threading.Thread(target=self._wait_for_election_ok, args=(self))
+        waiting_thread.start()
+
+    def _send_health_check(self, target): #how often should this be sent?
+        self.send_to(target, {'type': 'health_check', 'return_port': self._port, 'target': target})
+        waiting_thread = threading.Thread(target=self._wait_for_health_check_response, args=(self, target))
+        waiting_thread.start()
+
+    def _wait_for_election_ok(self):
+        time.sleep(2)
+        if not self._election_ok_received: # If no response is received
+            self._leader = self._identity
+            self.broadcast({'type': 'i_am_leader', 'name': self._identity})
+    
+    def _wait_for_health_check_response(self, target):
+        time.sleep(2)
+        if not self._health_check_ack_received: # If no response is received
+            if self._leader == target:
+                    self._start_leader_election()
+            else: # so what?
+                pass
+
 
     def _process_application_message(self, message: ApplicationMessage):
         _logger.info(f"Received application message {type(message).__name__}: {message.__dict__}")
