@@ -63,7 +63,7 @@ class NetLobby(EventManager):
             if self.is_leader():
                 pass # TODO: Send a leader election initiation and then leave or just leave idk
             else:
-                self.send_to_leader({'type': 'member_left', 'name': self._identity})
+                self.send_to_leader({'type': 'leave', 'name': self._identity})
 
     def create_lobby(self) -> None:
         """Starts a new lobby."""
@@ -78,6 +78,8 @@ class NetLobby(EventManager):
 
     def handle_msg(self):
         source, data = self._backend.receive()
+        if source is None or data is None:
+            return 
         msg = _read_message(data)
         _logger.info(f'Received message: {msg}')
 
@@ -92,6 +94,7 @@ class NetLobby(EventManager):
                     self._identity = msg['target'] # Out public IP address is now known
                     self._leader = self._identity
                     self._members = set([self._identity])
+                    self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
                     _logger.info(f'Initialized lobby, I am leader {self._identity}')
                 _logger.info(f'Forwarding new member request to leader')
                 self.send_to_leader({'type': 'request_new_member', 'port': msg['return_port'], 'identity': source.split(':')[0]})
@@ -100,6 +103,7 @@ class NetLobby(EventManager):
                 name = f'{msg["identity"]}:{msg["port"]}'
                 _logger.info(f'Approving new member {name}')
                 self._members.add(name)
+                self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
                 # Tell them about the lobby
                 self.send_to(name, {
                     'type': 'lobby_info',
@@ -110,16 +114,12 @@ class NetLobby(EventManager):
                 })
                 # Tell everyone in the lobby about them
                 self.broadcast({'type': 'new_member', 'name': name})
+                self._send_player_state(name)
             case 'new_member':
                 # Leader is telling us about the new member
                 _logger.info(f'New lobby member: {msg["name"]}')
                 self._members.add(msg['name'])
                 self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
-            case 'member_left':
-                # A member has left
-                _logger.info(f'Lobby member: {msg["name"]} left')
-                if self.is_leader():
-                    self.broadcast({'type': 'member_left', 'name': msg['name']})
                 self._members.remove(msg['name'])
             case 'i_am_leader':
                 # A new leader has appeared
@@ -133,6 +133,7 @@ class NetLobby(EventManager):
                 self._identity = f'{msg["identity"]}:{self._port}'
                 self._leader = msg['leader']
                 self._members = set(msg['members'])
+                self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
                 _logger.info(f'Joined lobby, I am {self._identity} (leader: {self._leader})')
             case 'start_election':
                 # An election is underway
@@ -150,6 +151,14 @@ class NetLobby(EventManager):
                 # confirm health check
                 self._health_check_ack_received = True
                 _logger.info(f'I, {self._identity} received a health check ACK from {msg["name"]}')
+            case 'leave':
+                if msg['name'] in self._members:
+                    self._members.remove(msg['name'])
+                if self.is_leader():
+                    msg.pop('to_leader')
+                    self.broadcast(msg)
+                self._raise_event(self.EVENT_MEMBERS_CHANGED, self._members, self._identity, self._leader)
+                _logger.info(f'{self._identity} has left the lobby')
             case self._APPLICATION_MESSAGE_TYPE:
                 self._process_application_message(pickle.loads(base64.b64decode(msg['message'])))
 
@@ -179,25 +188,23 @@ class NetLobby(EventManager):
                 pass # TODO remove member?
     
     def application_request(self, message: ApplicationMessage):
-        print('app_request', self.is_leader())
         if self.is_leader():
             self.broadcast(self._create_application_message(message))
             self._execute_application_message(message)
         else:
             self.send_to_leader(self._create_application_message(message))
 
-    def request_stop(self, current_timestamp: int):
-        self.application_request(StopMessage(current_timestamp))
+    def request_stop(self):
+        self.application_request(StopMessage())
 
-    def request_resume(self, current_timestamp: int):
-        print('request_resume')
-        self.application_request(ResumeMessage(current_timestamp))
+    def request_resume(self):
+        self.application_request(ResumeMessage())
 
-    def request_jump_to_timestamp(self, current_timestamp: int, destination_timestamp: int):
-        self.application_request(JumpToTimestampMessage(current_timestamp, destination_timestamp))
+    def request_jump_to_timestamp(self, destination_timestamp: int):
+        self.application_request(JumpToTimestampMessage(destination_timestamp))
 
-    def request_skip(self, current_timestamp: int):
-        self.application_request(SkipMessage(current_timestamp))
+    def request_set(self, index: int):
+        self.application_request(SetMessage(index))
 
     def shutdown(self) -> None:
         self._backend.shutdown()
@@ -229,6 +236,11 @@ class NetLobby(EventManager):
                 pass
 
 
+    def _send_player_state(self, name: str):
+        state = StateMessage(self._player.get_state())
+        msg = self._create_application_message(state)
+        self.send_to(name, msg)
+
     def _process_application_message(self, message: ApplicationMessage):
         _logger.info(f"Received application message {type(message).__name__}: {message.__dict__}")
 
@@ -248,7 +260,10 @@ class NetLobby(EventManager):
             case CommandType.JumpToTimestamp.value:
                 return True
 
-            case CommandType.Skip.value:
+            case CommandType.Set.value:
+                return True
+            
+            case CommandType.State.value:
                 return True
 
     def _execute_application_message(self, message: ApplicationMessage):
@@ -260,10 +275,13 @@ class NetLobby(EventManager):
                 self._player.play()
 
             case CommandType.JumpToTimestamp.value:
-                pass # TODO: 
+                self._player.skip_to_timestamp(message.destination_timestamp)
 
-            case CommandType.Skip.value:
-                self._player.do_skip()
+            case CommandType.Set.value:
+                self._player.set_song(message.index)
+
+            case CommandType.State.value:
+                self._player.set_state(message.state)
 
     def _create_application_message(cls, message: ApplicationMessage):
         return {'type': cls._APPLICATION_MESSAGE_TYPE, 'message': base64.b64encode(pickle.dumps(message)).decode('utf-8')}
