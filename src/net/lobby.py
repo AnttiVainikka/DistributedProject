@@ -3,6 +3,8 @@ import json
 import log
 import random
 import pickle
+import time
+import threading
 from threading import Event
 from net.backend import IpAddress, NetBackend, TcpBackend
 
@@ -21,8 +23,6 @@ class NetLobby(EventManager):
     A network lobby.
     """
     EVENT_MEMBERS_CHANGED = "members_changed"
-    EVENT_ELECTION_OK_RECEIVED = "election_OK"
-    EVENT_HEALTH_CHECK_RESPONSE_RECEIVED = "health_check_OK"
 
     _APPLICATION_MESSAGE_TYPE = 'application' # typo
 
@@ -39,16 +39,20 @@ class NetLobby(EventManager):
 
     _player: "EpicMusicPlayer"
 
+    _election_ok_received: int
+    _health_check_ack_received: int
+
     def __init__(self) -> None:
         super().__init__()
         self._register_event(self.EVENT_MEMBERS_CHANGED)
-        self._register_event(self.EVENT_ELECTION_OK_RECEIVED)
-        self._register_event(self.EVENT_HEALTH_CHECK_RESPONSE_RECEIVED)
 
         self._port = random.randint(10000, 30000)
         _logger.info(f'Listening on port {self._port}')
         self._backend = TcpBackend(self._port)
         self._members = []
+
+        self._election_ok_received = False
+        self._health_check_ack_received = False
 
     def register_player(self, player: "EpicMusicPlayer"):
         self._player = player
@@ -134,23 +138,18 @@ class NetLobby(EventManager):
                 # An election is underway
                 _logger.info(f'I, {self._identity} received an election message from {msg["name"]}')
                 self.send_to(msg["name"], {'type': 'election_OK', 'return_port': self._port, 'target': msg["name"]})
-                for member in self._members:
-                    if self._identity < member: # IP address equals ID?
-                        self.send_to(member, {'type': 'start_election', 'return_port': self._port, 'target': member})
-                if False: # If no response is received
-                    self._leader = self._identity
-                    self.broadcast({'type': 'i_am_leader', 'name': self._identity})
+                self._start_leader_election()
             case 'election_OK':
+                # withdraw from election and wait for new leader
+                self._election_ok_received = True
                 _logger.info(f'I, {self._identity} received a election OK from {msg["name"]}')
-                # TODO withdraw from election and wait for new leader
-                # self._raise_event(self.EVENT_ELECTION_OK_RECEIVED, self._members, self._identity, self._leader)
             case 'health_check':
                 _logger.info(f'I, {self._identity} received a health check from {msg["name"]}')
                 self.send_to(msg["name"], {'type': 'health_check_ack', 'return_port': self._port, 'target': msg["name"]})
             case 'health_check_ack':
+                # confirm health check
+                self._health_check_ack_received = True
                 _logger.info(f'I, {self._identity} received a health check ACK from {msg["name"]}')
-                # TODO confirm health check
-                # self._raise_event(self.EVENT_HEALTH_CHECK_RESPONSE_RECEIVED, self._members, self._identity, self._leader)
             case self._APPLICATION_MESSAGE_TYPE:
                 self._process_application_message(pickle.loads(base64.b64decode(msg['message'])))
 
@@ -204,7 +203,31 @@ class NetLobby(EventManager):
         self._backend.shutdown()
 
     def _start_leader_election(self):
-        pass # TODO implement leader elections
+        for member in self._members:
+                if hash(self._identity) < hash(member): # IP address equals ID?
+                    self.send_to(member, {'type': 'start_election', 'return_port': self._port, 'target': member})
+        waiting_thread = threading.Thread(target=self._wait_for_election_ok, args=(self))
+        waiting_thread.start()
+
+    def _send_health_check(self, target): #how often should this be sent?
+        self.send_to(target, {'type': 'health_check', 'return_port': self._port, 'target': target})
+        waiting_thread = threading.Thread(target=self._wait_for_health_check_response, args=(self, target))
+        waiting_thread.start()
+
+    def _wait_for_election_ok(self):
+        time.sleep(2)
+        if not self._election_ok_received: # If no response is received
+            self._leader = self._identity
+            self.broadcast({'type': 'i_am_leader', 'name': self._identity})
+    
+    def _wait_for_health_check_response(self, target):
+        time.sleep(2)
+        if not self._health_check_ack_received: # If no response is received
+            if self._leader == target:
+                    self._start_leader_election()
+            else: # so what?
+                pass
+
 
     def _process_application_message(self, message: ApplicationMessage):
         _logger.info(f"Received application message {type(message).__name__}: {message.__dict__}")
