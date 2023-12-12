@@ -4,6 +4,7 @@ from tkinter import *
 from application.player import EpicMusicPlayer
 from net.lobby import NetLobby
 from gui.main import main_window
+from gui.name import name_window
 from gui.connect import connect_window
 from gui.music_player import music_player_window
 from gui.members import members_window
@@ -17,6 +18,7 @@ class Application:
         self.main_window = Tk()
         self.main_window.protocol("WM_DELETE_WINDOW", self.on_close)
         songs = ["src/songs/[Copyright Free Romantic Music] - .mpga","src/songs/Orchestral Trailer Piano Music (No Copyright) .mpga"]
+        self._name = "No Name"
         self._player = EpicMusicPlayer(songs)
         self._lobby = NetLobby()
         self._lobby.register_player(self._player)
@@ -31,12 +33,18 @@ class Application:
         while not self._should_exit:
             self._lobby.handle_msg()
 
-    def start(self):
+    def set_name(self, name: str):
+        self._name = name
         main_window(self.main_window, self.main_host_pushed, self.main_connect_pushed, self.main_exit_pushed)
+
+    def start(self):
+        name_window(self.main_window, self.set_name, self.main_exit_pushed)
         self.main_window.mainloop()
 
     def main_host_pushed(self):
-        print(f"Listening on port {self._lobby._port}")
+        print(f"Listening on port {30000}")
+        self._lobby.create_lobby("", 30000, self._name)
+
         music_player_window(self.main_window, self._player)
         members_win = Toplevel(self.main_window)
         members_window(members_win, self._lobby)
@@ -55,7 +63,7 @@ class Application:
         members_win = Toplevel(self.main_window)
         members_window(members_win, self._lobby)
         
-        self._lobby.join_lobby(f'{ip}:30000')
+        self._lobby.join_lobby(self._name, 30000, ip, 30000)
         self._lobby.register_player(self._player)
         self._player.start()
 
