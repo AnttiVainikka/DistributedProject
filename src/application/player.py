@@ -1,9 +1,13 @@
 import vlc #pip install python-vlc
-from dataclasses import dataclass
 from net.lobby import NetLobby
 from event_manager.event_manager import EventManager
+from application.state import State
 
 from mutagen.mp3 import MP3
+
+import log
+
+_logger = log.getLogger(__name__)
 
 def _audio_duration(file_path):
     try:
@@ -13,12 +17,6 @@ def _audio_duration(file_path):
     except Exception as e:
         print(f"Error: {e}")
         return -1
-
-@dataclass
-class State:
-    index: int
-    timestamp: int
-    playing: int
 
 class EpicMusicPlayer(EventManager):
     EVENT_TIMESTAMP = "timestamp_changed"
@@ -130,12 +128,14 @@ class EpicMusicPlayer(EventManager):
             self._raise_event(self.EVENT_CHANGED, self.playlist[index].name, self.playlist[index].length)
 
     def request_pause(self):
+        _logger.debug(f"Request to pause song")
         if self.lobby is not None:
             self.lobby.request_stop()
         else:
             self.do_pause()
 
     def request_resume(self):
+        _logger.debug(f"Request to start song")
         if self.lobby is not None:
             self.lobby.request_resume()
         else:
@@ -143,12 +143,15 @@ class EpicMusicPlayer(EventManager):
 
     def request_skip(self):
         index = (self.current_media + 1) % len(self.media_list)
+        _logger.debug(f"Request to skip to song {index} ({self.playlist[index].name})")
+
         if self.lobby is not None:
             self.lobby.request_set(index)
         else:
             self.set_song(index)
 
     def request_skip_to_timestamp(self, timestamp: int):
+        _logger.debug(f"Request to skip to timestamp {timestamp}")
         if self.lobby is not None:
             self.lobby.request_jump_to_timestamp(timestamp)
         else:

@@ -34,17 +34,18 @@ class MembersFrame:
         canvas.grid(row=1, column=0)
         text = tk.Label(self._info_frame, text="You as leader", font=("Helvetica", 11, "bold"))
         text.grid(row=1, column=1)
+        self.update_members(lobby._members, lobby._identity, lobby._leader)
 
-    def update_members(self, new_members: list, me, leader):
+    def update_members(self, new_members: dict, me, leader):
         for widget in self._member_frame.winfo_children():
             widget.destroy()
-        for member in new_members:
+        for ip_address, member in new_members.items():
             label = tk.Label(self._member_frame, text=str(member), borderwidth=1, relief="solid", width=15, height=2, font=("Helvetica", 14, "bold"))
-            if leader == me and me == member:
+            if leader == ip_address and me == ip_address:
                 label.config(fg=self._ME_LEADER_COLOR)
-            elif me == member:
+            elif me == ip_address:
                 label.config(fg=self._ME_COLOR)
-            elif leader == member:
+            elif leader == ip_address:
                 label.config(fg=self._LEADER_COLOR)
             label.pack(pady=5)
 
