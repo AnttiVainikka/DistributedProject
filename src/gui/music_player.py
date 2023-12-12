@@ -5,11 +5,11 @@ from application.player import EpicMusicPlayer
 class MusicPlayerFrame:
     def __init__(self, master, player: EpicMusicPlayer, **kwargs):
         self._player = player
+
         self._player.connect_to_event(self._player.EVENT_TIMESTAMP, self.set_timestamp)
         self._player.connect_to_event(self._player.EVENT_PAUSED, self._paused)
         self._player.connect_to_event(self._player.EVENT_STARTED, self._started)
         self._player.connect_to_event(self._player.EVENT_CHANGED, self._changed)
-        self._player.connect_to_event(self._player.EVENT_SONG_LENGTH, self.set_max_timestamp)
 
         self._frame = tk.Frame(master, **kwargs)
         self._frame.pack(padx=2)
@@ -60,13 +60,11 @@ class MusicPlayerFrame:
         if not self._is_slider_dragged:
             self._slider.set(ts)
 
-    def _started(self, name: str, timestamp: int):
-        self.set_timestamp(timestamp)
+    def _started(self):
         self._start_button.config(state="disabled")
         self._pause_button.config(state="active")
 
-    def _paused(self, name: str, timestamp: int):
-        self.set_timestamp(timestamp)
+    def _paused(self):
         self._pause_button.config(state="disabled")
         self._start_button.config(state="active")
 
