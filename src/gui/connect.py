@@ -20,7 +20,7 @@ class ConnectFrame:
         self._back_button = tk.Button(self._bot_frame, text="Back", command=back_callback, font=("Helvetica", 14, "bold"))
         self._back_button.pack(side="right", padx=5)
 
-        self._connect_button = tk.Button(self._bot_frame, text="Conenct", command=self._button_pressed, font=("Helvetica", 14, "bold"))
+        self._connect_button = tk.Button(self._bot_frame, text="Connect", command=self._button_pressed, font=("Helvetica", 14, "bold"))
         self._connect_button.pack(side="right", padx=5)
 
         self._connect_callback = connect_callback
